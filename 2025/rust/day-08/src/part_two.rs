@@ -1,74 +1,115 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
+struct JBox {
+    x: i64,
+    y: i64,
+    z: i64,
+}
 
-#[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-struct Node {
-    position: usize,
-    line: usize,
+impl FromStr for JBox {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split(',').collect::<Vec<&str>>() {
+            [x, y, z] => Ok(JBox {
+                x: x.parse().expect("{x} isn't u64"),
+                y: y.parse().expect("{y} isn't u64"),
+                z: z.parse().expect("{z} isn't u64"),
+            }),
+            _ => panic!(" {s} isn't a Junction Box"),
+        }
+    }
+}
+
+impl JBox {
+    fn distance(self: Self, other: JBox) -> u64 {
+        ((self.x - other.x).pow(2) + (self.y - other.y).pow(2) + (self.z - other.z).pow(2)) as u64
+    }
+}
+
+#[derive(PartialOrd, PartialEq, Debug, Copy, Clone, Eq, Hash, Ord)]
+struct Connection {
+    a: JBox,
+    b: JBox,
+    distance: u64,
+}
+
+impl Connection {
+    fn new(a: JBox, b: JBox) -> Self {
+        let distance = a.distance(b);
+        Self { a, b, distance }
+    }
+}
+
+struct Graph {
+    graph: HashMap<JBox, Vec<JBox>>,
+}
+
+impl Graph {
+    fn new() -> Self {
+        let graph: HashMap<JBox, Vec<JBox>> = HashMap::new();
+        Self { graph }
+    }
+
+    fn add(self: &mut Self, connection: Connection) {
+        self.graph
+            .entry(connection.a)
+            .or_default()
+            .push(connection.b);
+        self.graph
+            .entry(connection.b)
+            .or_default()
+            .push(connection.a);
+    }
+
+    fn get_n_circuits(self: &Self) -> usize {
+        let mut circuits: Vec<HashSet<JBox>> = Vec::new();
+        let mut visited: HashSet<JBox> = HashSet::new();
+        for node in self.graph.keys() {
+            if visited.contains(node) {
+                continue;
+            }
+            let mut circuit: HashSet<JBox> = HashSet::new();
+            let mut stack = vec![node];
+
+            while let Some(&curr) = stack.pop() {
+                if !visited.contains(&curr) {
+                    circuit.insert(curr);
+                    visited.insert(curr);
+                    for adj in self.graph[&curr].iter() {
+                        stack.push(&adj);
+                    }
+                }
+            }
+            circuits.push(circuit);
+        }
+        return circuits.len();
+    }
 }
 
 pub fn process(input: &'static str) -> u64 {
-    let lines: Vec<&str> = input.trim().split("\n").map(|l| l.trim()).collect();
-    let (start, tail) = lines.split_first().unwrap();
-    let mut nodes: Vec<Node> = Vec::new();
-    let mut registry: HashMap<Node, u64> = HashMap::new();
-
-    // Find first position
-    let mut head: Node = Node {
-        position: 0,
-        line: 0,
-    };
-    for (i, &c) in start.as_bytes().iter().enumerate() {
-        if c == b'S' {
-            head = Node {
-                position: i,
-                line: 0,
-            };
-            nodes.push(head)
+    let jboxes: Vec<JBox> = input
+        .trim()
+        .split("\n")
+        .map(|l| l.trim().parse().unwrap())
+        .collect();
+    let mut connections: Vec<Connection> = Vec::new();
+    for i in 0..jboxes.len() - 1 {
+        for j in i + 1..jboxes.len() {
+            connections.push(Connection::new(jboxes[i], jboxes[j]));
         }
     }
+    connections.sort_by(|a, b| b.distance.cmp(&a.distance));
 
-    // DFS
-    while let Some(node) = nodes.pop() {
-        if node.line == tail.len() - 1 {
-            registry.insert(node, 1);
-            continue;
-        }
-        if tail[node.line].as_bytes()[node.position] == b'^' {
-            let right = Node {
-                line: node.line + 1,
-                position: node.position + 1,
-            };
-            let left = Node {
-                line: node.line + 1,
-                position: node.position - 1,
-            };
-
-            if registry.contains_key(&left) && registry.contains_key(&right) {
-                registry.insert(node, registry[&left] + registry[&right]);
-                continue;
-            }
-            nodes.push(node);
-            if !registry.contains_key(&left) {
-                nodes.push(left);
-            }
-            if !registry.contains_key(&right) {
-                nodes.push(right);
-            }
-        } else {
-            let next = Node {
-                line: node.line + 1,
-                position: node.position,
-            };
-            if registry.contains_key(&next) {
-                registry.insert(node, registry[&next]);
-                continue;
-            }
-            nodes.push(node);
-            nodes.push(next);
+    let mut graph = Graph::new();
+    while let Some(conn) = connections.pop() {
+        graph.add(conn);
+        if graph.graph.keys().len() == jboxes.len() && graph.get_n_circuits() == 1 {
+            return (conn.a.x * conn.b.x) as u64;
         }
     }
-
-    registry[&head]
+    panic!("No soulution found");
 }
 
 #[cfg(test)]
@@ -77,23 +118,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn day_07_part_two() {
-        let input = ".......S.......
-                                   ...............
-                                   .......^.......
-                                   ...............
-                                   ......^.^......
-                                   ...............
-                                   .....^.^.^.....
-                                   ...............
-                                   ....^.^...^....
-                                   ...............
-                                   ...^.^...^.^...
-                                   ...............
-                                   ..^...^.....^..
-                                   ...............
-                                   .^.^.^.^.^...^.
-                                   ...............";
-        assert_eq!(process(input), 40);
+    fn day_08_part_two() {
+        let input = "162,817,812
+                                   57,618,57
+                                   906,360,560
+                                   592,479,940
+                                   352,342,300
+                                   466,668,158
+                                   542,29,236
+                                   431,825,988
+                                   739,650,466
+                                   52,470,668
+                                   216,146,977
+                                   819,987,18
+                                   117,168,530
+                                   805,96,715
+                                   346,949,466
+                                   970,615,88
+                                   941,993,340
+                                   862,61,35
+                                   984,92,344
+                                   425,690,689";
+        assert_eq!(process(input), 25272);
     }
 }
